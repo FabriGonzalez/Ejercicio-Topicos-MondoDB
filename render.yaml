@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: productos-graphql-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22.20.0"
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: true
+      # sync: false -> Render lo pide por el panel, nunca queda en el repositorio.
+      - key: MONGODB_URI
+        sync: false
+      - key: CORS_ORIGIN
+        value: "*"
