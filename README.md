@@ -13,6 +13,8 @@ Trae introspección y la interfaz **Apollo Sandbox** habilitadas, lista para des
 | `graphql` | ^16.11.0 | Motor GraphQL (17 todavía no es compatible con Apollo Server 5) |
 | `mongoose` | ^9.10.3 | ODM y conexión a Atlas |
 | `cors` / `dotenv` | ^2.8.5 / ^18.0.4 | CORS y variables de entorno |
+| `@modelcontextprotocol/sdk` | ^1.31.0 | SDK oficial de MCP (servidor de tools) |
+| `zod` | ^4.6.5 | Tipado y validación de los parámetros de las tools |
 
 ## 1. Requisitos
 
@@ -98,6 +100,11 @@ izquierda, la ejecutás y ves el JSON a la derecha, con autocompletado del esque
 │   ├── graphql/
 │   │   ├── typeDefs.js       # SDL
 │   │   └── resolvers.js      # Resolvers (queries y mutations)
+│   ├── mcp/
+│   │   ├── server.js         # Entry point del servidor MCP por stdio
+│   │   ├── config.js         # Config propia del MCP (no necesita MONGODB_URI)
+│   │   ├── graphqlClient.js  # Cliente HTTP de la API GraphQL
+│   │   └── tools.js          # Definición y validación de las tools
 │   └── scripts/seed.js       # Carga de datos de ejemplo
 ├── .env.example
 ├── render.yaml               # Configuración de despliegue en Render
@@ -286,6 +293,170 @@ ambos valores están forzados a mano para que el esquema se pueda explorar tambi
 `embed: true` hace que Sandbox se sirva dentro de la propia página en lugar de redirigir a
 `studio.apollographql.com`. Eso importa en Render: la interfaz queda en tu propio dominio y no depende de
 Apollo, por lo que el explorador del esquema y la consola de consultas funcionan sin conexión externa.
+
+## Servidor MCP
+
+Además de la API, el proyecto incluye un **servidor MCP (Model Context Protocol)** que expone el catálogo
+como herramientas para que un LLM pueda consultarlo y modificarlo.
+
+Usa el SDK oficial [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) y
+comunica por **stdio**. No toca la base de datos: consume la API GraphQL ya desplegada por HTTP, así que
+`MONGODB_URI` no hace falta para levantarlo.
+
+```
+┌──────────┐   stdio (JSON-RPC)   ┌────────────────┐    HTTPS     ┌──────────────────┐
+│ Cliente  │ ───────────────────► │  servidor MCP  │ ───────────► │ GraphQL en Render│
+│   MCP    │ ◄─────────────────── │  (Node.js)     │ ◄─────────── │   (Apollo)       │
+└──────────┘                      └────────────────┘              └──────────────────┘
+```
+
+### Ejecutarlo
+
+```bash
+npm run mcp        # normal
+npm run mcp:dev    # con recarga automática
+```
+
+Un servidor MCP por stdio no se usa desde la terminal: lo lanza el cliente MCP que lo integre.
+
+### Configuración
+
+| Variable | Por defecto | Para qué sirve |
+| --- | --- | --- |
+| `GRAPHQL_URL` | `https://ejercicio-topicos-mondodb.onrender.com/graphql` | Endpoint que consulta |
+| `GRAPHQL_TIMEOUT_MS` | `60000` | Timeout por llamada |
+
+El timeout por defecto es de 60 s a propósito: Render en plan free hiberna el servicio, así que la primera
+llamada después de un rato sin tráfico tarda bastante. Un timeout corto haría fallar la tool con un error
+confuso.
+
+Para apuntarlo a una API local:
+
+```env
+GRAPHQL_URL="http://localhost:4000/graphql"
+```
+
+### Herramientas
+
+#### `get_products`
+
+Devuelve el listado de productos. **Sin argumentos devuelve el catálogo completo**; los filtros son
+opcionales y sirven para acotarlo.
+
+| Parámetro | Tipo | Restricciones |
+| --- | --- | --- |
+| `category` | string | 1 a 60 caracteres, case-insensitive |
+| `search` | string | Mínimo 1 carácter; busca en nombre y descripción |
+| `minPrice` / `maxPrice` | number | `>= 0` |
+| `minStock` / `maxStock` | integer | `>= 0` |
+| `inStock` | boolean | `true` solo con stock, `false` solo agotados |
+| `sortBy` | enum | `NAME`, `PRICE`, `STOCK`, `CATEGORY`, `CREATED_AT` |
+| `sortOrder` | enum | `ASC`, `DESC` |
+| `limit` | integer | 1 a 200 (por defecto 50) |
+| `offset` | integer | `>= 0` |
+
+Ejemplo de respuesta:
+
+```
+Se encontraron 2 productos con el filtro aplicado:
+
+- [6abc13945ced2396b67f8617] Teclado Mecánico RGB
+  precio: 45 | stock: 10 | categoría: Electronica
+  descripción: Teclado mecánico con iluminación RGB
+- [6abc13945ced2396b67f861f] Mochila Antirrobo para Notebook
+  precio: 35 | stock: 45 | categoría: accesorios
+```
+
+#### `update_product`
+
+Modifica `price`, `stock` y/o `category` de un producto. Es un PATCH: **solo toca los campos enviados** y
+devuelve el producto con los valores ya guardados.
+
+| Parámetro | Tipo | Restricciones |
+| --- | --- | --- |
+| `id` | string | **Requerido.** ObjectId de MongoDB, 24 hexadecimales |
+| `price` | number | Opcional, `>= 0` |
+| `stock` | integer | Opcional, `>= 0` |
+| `category` | string | Opcional, 1 a 60 caracteres |
+
+Si se manda solo el `id` sin ningún campo, la tool devuelve un error explicando que hay que enviar al menos
+uno. Si el producto no existe, devuelve un error con el código `NOT_FOUND` del servidor GraphQL.
+
+```
+Producto "Cortadora de Césped Eléctrica" (6abc13945ced2396b67f8645) actualizado. Campos modificados: stock.
+
+Valores actuales: precio: 189.99 | stock: 14 | categoría: Jardin
+```
+
+### Conectarlo a un cliente MCP
+
+**opencode** — el proyecto ya trae un `opencode.json` en la raíz con las rutas absolutas de esta máquina, así
+que solo hay que abrir opencode dentro de la carpeta:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "productos": {
+      "type": "local",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\ruta\\al\\ejercicioDBAtlasymas\\src\\mcp\\server.js"
+      ],
+      "cwd": "C:\\ruta\\al\\ejercicioDBAtlasymas",
+      "enabled": true,
+      "timeout": 15000,
+      "environment": {
+        "GRAPHQL_URL": "https://ejercicio-topicos-mondodb.onrender.com/graphql",
+        "GRAPHQL_TIMEOUT_MS": "60000"
+      }
+    }
+  }
+}
+```
+
+Se verifica con `opencode mcp list`, que debe mostrar `productos connected`. Como el prefijo de las tools es
+el nombre del server, en el prompt se las nombra como `productos_get_products` y `productos_update_product`.
+
+`timeout` sube el default de 5 s a 15 s para darle margen al primer arranque de `node.exe` en Windows, que con el
+antivirus suele tardar. No afecta a las llamadas a la API: ese timeout es el `GRAPHQL_TIMEOUT_MS` de 60 s.
+
+**Claude Desktop** — en `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "productos": {
+      "command": "node",
+      "args": ["C:\\ruta\\al\\ejercicioDBAtlasymas\\src\\mcp\\server.js"]
+    }
+  }
+}
+```
+
+### Errores
+
+Las tools nunca tiran una excepción: devuelven `isError: true` con un mensaje que el LLM puede leer y usar para
+reintentar o corregir. Cada error trae un código:
+
+| `extensions.code` del cliente MCP | Causa |
+| --- | --- |
+| `NETWORK_ERROR` | No se pudo alcanzar el endpoint |
+| `TIMEOUT` | El servidor no respondió dentro de `GRAPHQL_TIMEOUT_MS` |
+| `HTTP_ERROR` | La API respondió con un status no 2xx |
+| `INVALID_RESPONSE` | La respuesta no es JSON |
+| `BAD_USER_INPUT` | La API rechazó los valores enviados |
+| `NOT_FOUND` | El producto no existe |
+
+### El detalle de stdio
+
+En un servidor MCP por stdio, **stdout es el canal del protocolo**: un solo `console.log` suelto inyecta un
+carácter inválido en el flujo JSON-RPC y el cliente se desconecta. Por eso en todo `src/mcp/` los logs van con
+`console.error` (stderr) y el aviso de `dotenv` se silencia con `dotenv.config({ quiet: true })`, que en las
+versiones recientes escribe en stdout por defecto.
+
+Para comprobarlo, el servidor se puede auditar a mano: se envía un `initialize` por stdin y se verifica que
+**cada línea de stdout sea JSON-RPC válido** y que el banner haya ido a stderr.
 
 ## Despliegue en Render
 

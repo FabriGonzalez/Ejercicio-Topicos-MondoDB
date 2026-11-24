@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const DEFAULT_DATABASE = 'productos';
+const DEFAULT_DATABASE = 'products';
 
 /**
  * Inserta el nombre de la base de datos en la URI cuando no viene definido.

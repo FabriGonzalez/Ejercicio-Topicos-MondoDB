@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "productos": {
+      "type": "local",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Users\\fabri\\Documents\\Uni\\Topicos De Desarrollo Web\\ejercicioDBAtlasymas\\src\\mcp\\server.js"
+      ],
+      "cwd": "C:\\Users\\fabri\\Documents\\Uni\\Topicos De Desarrollo Web\\ejercicioDBAtlasymas",
+      "enabled": true,
+      "timeout": 15000,
+      "environment": {
+        "GRAPHQL_URL": "https://ejercicio-topicos-mondodb.onrender.com/graphql",
+        "GRAPHQL_TIMEOUT_MS": "60000"
+      }
+    }
+  }
+}

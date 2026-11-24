@@ -11,15 +11,23 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "mcp": "node src/mcp/server.js",
+    "mcp:dev": "node --watch src/mcp/server.js",
+    "auditor": "node src/auditor/index.js",
+    "auditor:dev": "node --watch src/auditor/index.js"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.88",
     "@apollo/server": "^5.5.1",
     "@as-integrations/express5": "^1.1.2",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "ai": "^7.0.128",
     "cors": "^2.8.5",
     "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "graphql": "^16.11.0",
-    "mongoose": "^9.10.3"
+    "mongoose": "^9.10.3",
+    "zod": "^4.6.5"
   }
 }
